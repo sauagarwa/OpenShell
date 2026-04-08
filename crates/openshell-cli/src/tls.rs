@@ -274,16 +274,23 @@ pub async fn build_channel(server: &str, tls: &TlsOptions) -> Result<Channel> {
         .http2_keep_alive_interval(Duration::from_secs(10))
         .keep_alive_while_idle(true);
 
-    let tls_config = if tls.is_bearer_auth() {
+    if tls.is_bearer_auth() {
         // Bearer mode without HTTPS (e.g. http:// direct) — no tunnel needed,
         // but also no TLS config to set. This branch shouldn't normally happen
         // (edge endpoints are always HTTPS) but handle gracefully.
         return endpoint.connect().await.into_diagnostic();
-    } else {
-        // Standard mTLS: private CA + client cert.
-        let materials = require_tls_materials(server, tls)?;
-        build_tonic_tls_config(&materials)
-    };
+    }
+
+    if server.starts_with("http://") {
+        // Plaintext HTTP/2 — skip TLS configuration entirely so tonic
+        // connects without encryption. Used when the gateway has TLS
+        // disabled (e.g. behind an OpenShift Route with edge termination).
+        return endpoint.connect().await.into_diagnostic();
+    }
+
+    // Standard mTLS: private CA + client cert.
+    let materials = require_tls_materials(server, tls)?;
+    let tls_config = build_tonic_tls_config(&materials);
     endpoint = endpoint.tls_config(tls_config).into_diagnostic()?;
     endpoint.connect().await.into_diagnostic()
 }

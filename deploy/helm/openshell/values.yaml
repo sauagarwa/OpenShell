@@ -29,6 +29,8 @@ securityContext:
   runAsNonRoot: true
   runAsUser: 1000
   allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
   capabilities:
     drop:
       - ALL
@@ -112,3 +114,31 @@ server:
 # NetworkPolicy restricting SSH ingress on sandbox pods to the gateway only.
 networkPolicy:
   enabled: true
+
+# OpenShift-specific configuration.  Enable these when deploying on
+# Red Hat OpenShift instead of vanilla Kubernetes / k3s.
+openshift:
+  enabled: false
+
+  # Create an OpenShift Route for external access to the gateway.
+  # When enabled, consider switching service.type to ClusterIP.
+  route:
+    enabled: false
+    host: ""
+    # TLS termination strategy: "passthrough" forwards encrypted traffic to
+    # the gateway (recommended when the gateway manages its own TLS),
+    # "edge" terminates TLS at the router, "reencrypt" terminates and
+    # re-encrypts to the backend.
+    tls:
+      termination: passthrough
+      # Only used with "edge" or "reencrypt" termination:
+      insecureEdgeTerminationPolicy: Redirect
+
+  # SecurityContextConstraints for sandbox pods.  Sandbox pods require
+  # elevated capabilities (SYS_ADMIN, NET_ADMIN, SYS_PTRACE, SYSLOG) for
+  # network namespace creation, seccomp filters, binary identity resolution,
+  # and bypass detection.
+  scc:
+    create: false
+    # Priority relative to other SCCs (higher = preferred).
+    priority: 10

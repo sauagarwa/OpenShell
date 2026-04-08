@@ -3,10 +3,10 @@
 
 {{- if .Values.networkPolicy.enabled }}
 # NetworkPolicy restricting SSH ingress on sandbox pods to the gateway pod.
-# Sandbox pods are dynamically created by the server and labelled with
-# openshell.ai/managed-by=openshell. This policy ensures only the gateway
-# (openshell server) pod can reach the sandbox SSH port (2222), blocking
-# lateral movement from other in-cluster workloads.
+# Sandbox pods created by the agent-sandbox-controller carry the
+# agents.x-k8s.io/sandbox-name-hash label. This policy ensures only the
+# gateway (openshell server) pod can reach the sandbox SSH port (2222),
+# blocking lateral movement from other in-cluster workloads.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,8 +16,9 @@ metadata:
     {{- include "openshell.labels" . | nindent 4 }}
 spec:
   podSelector:
-    matchLabels:
-      openshell.ai/managed-by: openshell
+    matchExpressions:
+      - key: agents.x-k8s.io/sandbox-name-hash
+        operator: Exists
   policyTypes:
     - Ingress
   ingress:
@@ -32,4 +33,9 @@ spec:
       ports:
         - protocol: TCP
           port: 2222
+# Egress is intentionally NOT restricted at the Kubernetes NetworkPolicy level.
+# The sandbox supervisor proxy intercepts all outbound connections from within
+# the SSH session and applies OPA-based policy decisions (allow/deny per host).
+# A k8s egress policy would conflict by blocking connections that the
+# supervisor has already approved (e.g. after `openshell policy set`).
 {{- end }}

@@ -1,0 +1,102 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.openshift.enabled .Values.openshift.scc.create }}
+# Custom SecurityContextConstraints for dynamically created sandbox pods.
+#
+# Sandbox pods run a privileged supervisor (UID 0) that creates network
+# namespaces, installs seccomp filters, configures Landlock filesystem
+# isolation, resolves binary identity via /proc, and reads /dev/kmsg for
+# bypass detection.  The supervisor then drops privileges for the agent
+# child process.
+#
+# Required capabilities:
+#   SYS_ADMIN  - seccomp filter installation, network namespace creation
+#   NET_ADMIN  - veth pair setup inside network namespaces
+#   SYS_PTRACE - /proc/<pid>/fd/ inspection for binary identity resolution
+#   SYSLOG     - /dev/kmsg reading for iptables bypass detection
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: {{ include "openshell.fullname" . }}-sandbox
+  labels:
+    {{- include "openshell.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/description: >-
+      SCC for OpenShell sandbox pods. Grants the capabilities required by the
+      sandbox supervisor for network namespace isolation, seccomp enforcement,
+      binary identity resolution, and bypass detection.
+priority: {{ .Values.openshift.scc.priority }}
+allowPrivilegedContainer: false
+allowPrivilegeEscalation: true
+allowHostDirVolumePlugin: true
+allowHostNetwork: false
+allowHostPorts: false
+allowHostPID: false
+allowHostIPC: false
+allowedCapabilities:
+  - SYS_ADMIN
+  - NET_ADMIN
+  - SYS_PTRACE
+  - SYSLOG
+defaultAddCapabilities: []
+requiredDropCapabilities: []
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: MustRunAs
+  seLinuxOptions:
+    type: spc_t
+fsGroup:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - hostPath
+  - persistentVolumeClaim
+  - projected
+  - secret
+readOnlyRootFilesystem: false
+---
+# ClusterRole granting use of the custom SCC to the gateway service account,
+# which creates sandbox pods via its service account identity.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "openshell.fullname" . }}-sandbox-scc
+  labels:
+    {{- include "openshell.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - security.openshift.io
+    resources:
+      - securitycontextconstraints
+    resourceNames:
+      - {{ include "openshell.fullname" . }}-sandbox
+    verbs:
+      - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "openshell.fullname" . }}-sandbox-scc
+  labels:
+    {{- include "openshell.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "openshell.fullname" . }}-sandbox-scc
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "openshell.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+  - kind: ServiceAccount
+    name: agent-sandbox-controller
+    namespace: agent-sandbox-system
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Release.Namespace }}
+{{- end }}

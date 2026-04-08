@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Recommended values overlay for deploying OpenShell on Red Hat OpenShift.
+#
+# Usage:
+#   helm install openshell ./deploy/helm/openshell \
+#     -n openshell --create-namespace \
+#     -f ./deploy/helm/openshell/values-openshift.yaml \
+#     --set server.sandboxImage=<your-sandbox-image> \
+#     --set openshift.route.host=openshell.apps.your-cluster.example.com
+
+# Use ClusterIP since the OpenShift Route handles external traffic.
+service:
+  type: ClusterIP
+  port: 8080
+
+# Let OpenShift assign UIDs/GIDs from the namespace range instead of
+# hard-coding values that conflict with the restricted-v2 SCC.
+podSecurityContext:
+  fsGroup: null
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: null
+  allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop:
+      - ALL
+
+server:
+  disableTls: true
+  disableGatewayAuth: true
+
+openshift:
+  enabled: true
+  route:
+    enabled: true
+    # Set to the desired FQDN for the gateway, e.g.:
+    #   openshell.apps.your-cluster.example.com
+    host: ""
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  scc:
+    create: true
+    priority: 10

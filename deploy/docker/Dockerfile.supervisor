@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1
+
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Minimal image containing only the supervisor binary (~14 MB).
+# Used as an init container source on platforms where hostPath sideloading
+# is not viable (e.g. OpenShift with SELinux enforcing).
+#
+# Build:
+#   podman build --platform linux/amd64 \
+#     -t quay.io/<user>/openshell-supervisor:latest \
+#     -f deploy/docker/Dockerfile.supervisor .
+
+FROM ghcr.io/nvidia/openshell/cluster:latest AS source
+
+FROM scratch
+COPY --from=source /opt/openshell/bin/openshell-sandbox /openshell-sandbox
+ENTRYPOINT ["/openshell-sandbox"]

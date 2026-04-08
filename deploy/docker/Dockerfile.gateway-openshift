@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Simplified gateway build for OpenShift.
+#
+# Builds the openshell-server binary natively (no cross-compilation) and
+# packages it into a minimal Ubuntu image.
+#
+# Usage (from OpenShell repo root):
+#   podman build --platform linux/amd64 \
+#     -t <registry>/openshell/openshell-gateway:latest \
+#     -f deploy/docker/Dockerfile.gateway-openshift .
+
+FROM rust:1.88-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake g++ make protobuf-compiler pkg-config && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY Cargo.toml Cargo.lock ./
+COPY proto/ proto/
+COPY crates/ crates/
+
+RUN cargo build --release -p openshell-server && \
+    cp target/release/openshell-server /build/openshell-server
+
+FROM nvcr.io/nvidia/base/ubuntu:noble-20251013
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --user-group openshell
+
+WORKDIR /app
+
+COPY --from=builder /build/openshell-server /usr/local/bin/
+COPY --chmod=755 crates/openshell-server/migrations /build/crates/openshell-server/migrations
+
+USER openshell
+EXPOSE 8080
+
+ENTRYPOINT ["openshell-server"]
+CMD ["--port", "8080"]
