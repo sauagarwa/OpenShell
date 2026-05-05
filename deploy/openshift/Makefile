@@ -21,7 +21,7 @@ IMAGE_TAG       ?= latest
 SANDBOX_IMAGE   ?= openclaw
 OPENCLAW_PORT   ?= 18789
 RUST_TARGET     ?= x86_64-unknown-linux-gnu
-DOCKERFILE      ?= ../docker/Dockerfile.images
+DOCKERFILE      ?= deploy/docker/Dockerfile.images
 PROJECT_ROOT    ?= ../..
 SANDBOX_CRD     ?= ../kube/manifests/agent-sandbox.yaml
 
