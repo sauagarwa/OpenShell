@@ -13,8 +13,8 @@ Deploy OpenShell and run OpenClaw sandboxes on an OpenShift cluster using the pr
 ```shell
 cd deploy/openshift
 
-# Deploy OpenShell
-make deploy
+# Deploy OpenShell (using a specific image tag)
+make deploy IMAGE_TAG=8bfd3e1914a684094f472bce6d341706455288d7
 
 # Verify everything is running
 make status
@@ -39,7 +39,13 @@ make openclaw-ui SANDBOX=<sandbox-name>
 This creates the namespace, installs the Sandbox CRD and controller, creates the SSH handshake secret, installs the Helm chart, and creates an OpenShift Route with edge TLS termination:
 
 ```shell
-make deploy
+make deploy IMAGE_TAG=<commit-sha-or-tag>
+```
+
+> **Note:** The `latest` tag in the upstream `ghcr.io/nvidia/openshell` repository may not be up to date. Use a specific commit SHA as the image tag to ensure you get a working build. For example:
+
+```shell
+make deploy IMAGE_TAG=8bfd3e1914a684094f472bce6d341706455288d7
 ```
 
 The Sandbox CRD (`sandboxes.agents.x-k8s.io`) is required for sandbox lifecycle management. It is installed automatically if not already present. CRD installation requires cluster-admin privileges.
@@ -151,8 +157,8 @@ All variables can be overridden on the command line:
 | `NAMESPACE` | `openshell` | OpenShift namespace |
 | `HELM_RELEASE` | `openshell` | Helm release name |
 | `HELM_CHART` | `../helm/openshell` | Path to the Helm chart |
-| `IMAGE_REPO` | `quay.io/sauagarw` | Container image repository |
-| `IMAGE_TAG` | `latest` | Image tag |
+| `IMAGE_REPO` | `ghcr.io/nvidia/openshell` | Container image repository |
+| `IMAGE_TAG` | `latest` | Image tag (commit SHA or version tag) |
 | `SANDBOX_IMAGE` | `openclaw` | Sandbox image name for `sandbox-create` |
 | `OPENCLAW_PORT` | `18789` | Local port for the OpenClaw dashboard |
 | `RUST_TARGET` | `x86_64-unknown-linux-gnu` | Rust cross-compilation target |
@@ -160,7 +166,14 @@ All variables can be overridden on the command line:
 Example:
 
 ```shell
-make deploy NAMESPACE=my-ns IMAGE_REPO=myregistry.io/myorg IMAGE_TAG=v1.0.0
+# Deploy with a specific commit SHA
+make deploy IMAGE_TAG=8bfd3e1914a684094f472bce6d341706455288d7
+
+# Deploy with a custom image registry
+make deploy IMAGE_REPO=quay.io/myorg IMAGE_TAG=latest
+
+# Deploy to a different namespace
+make deploy NAMESPACE=my-ns IMAGE_TAG=8bfd3e1914a684094f472bce6d341706455288d7
 ```
 
 ## Make Targets

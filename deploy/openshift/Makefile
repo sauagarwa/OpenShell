@@ -4,19 +4,22 @@
 # OpenShell on OpenShift — deployment automation
 #
 # Usage:
-#   make deploy          Full deploy (secret + helm + route)
-#   make upgrade         Helm upgrade with same overrides
-#   make undeploy        Full teardown
-#   make status          Show pods, routes, services
-#   make logs            Tail gateway logs
-#   make sandbox-create  Create an OpenClaw sandbox
-#   make openclaw-ui SANDBOX=<name>  Launch OpenClaw dashboard UI
-#   make images          Build and push images to registry
+#   make deploy IMAGE_TAG=<sha>       Full deploy (namespace + CRD + SCC + secret + helm + route)
+#   make upgrade IMAGE_TAG=<sha>      Helm upgrade with same overrides
+#   make undeploy                     Full teardown
+#   make status                       Show pods, routes, services
+#   make logs                         Tail gateway logs
+#   make sandbox-create               Create an OpenClaw sandbox
+#   make openclaw-configure SANDBOX=<name>  Configure OpenClaw LLM provider
+#   make openclaw-start SANDBOX=<name>      Start OpenClaw gateway in sandbox
+#   make openclaw-ui SANDBOX=<name>         Launch OpenClaw dashboard UI
+#   make sandbox-delete SANDBOX=<name>      Delete a sandbox
+#   make images                       Build and push images to registry
 
 NAMESPACE       ?= openshell
 HELM_RELEASE    ?= openshell
 HELM_CHART      ?= ../helm/openshell
-IMAGE_REPO      ?= quay.io/sauagarw
+IMAGE_REPO      ?= ghcr.io/nvidia/openshell
 IMAGE_TAG       ?= latest
 SANDBOX_IMAGE   ?= openclaw
 OPENCLAW_PORT   ?= 18789

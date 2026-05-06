@@ -72,7 +72,9 @@ oc create secret generic openshell-ssh-handshake \
 
 ## 5. Deploy the OpenShell gateway with Helm
 
-Install the Helm chart with OpenShift-specific overrides. TLS is disabled because the OpenShift Route terminates TLS at the edge. The hardcoded `fsGroup` and `runAsUser` are removed so OpenShift can assign UIDs from the namespace's allowed range:
+Install the Helm chart with OpenShift-specific overrides. TLS is disabled because the OpenShift Route terminates TLS at the edge. The hardcoded `fsGroup` and `runAsUser` are removed so OpenShift can assign UIDs from the namespace's allowed range.
+
+> **Note:** The `latest` tag in the upstream `ghcr.io/nvidia/openshell` repository may not be up to date. Use a specific commit SHA as the image tag to ensure you get a working build.
 
 ```shell
 helm install openshell deploy/helm/openshell -n openshell \
@@ -83,18 +85,19 @@ helm install openshell deploy/helm/openshell -n openshell \
   --set securityContext.runAsUser=null
 ```
 
-If you are using custom images (e.g., from Quay.io), add the image overrides:
+If you are using dev images, add the image overrides with the desired tag:
+8bfd3e1914a684094f472bce6d341706455288d7 is the current dev image hash
 
 ```shell
 helm install openshell deploy/helm/openshell -n openshell \
-  --set server.disableTls=true \
-  --set service.type=ClusterIP \
-  --set server.sandboxNamespace=openshell \
-  --set podSecurityContext.fsGroup=null \
-  --set securityContext.runAsUser=null \
-  --set image.repository=quay.io/sauagarw/openshell-gateway \
-  --set image.tag=latest \
-  --set server.supervisorImage=quay.io/sauagarw/openshell-supervisor:latest
+--set server.disableTls=true \
+--set service.type=ClusterIP \
+--set server.sandboxNamespace=openshell \
+--set image.repository=ghcr.io/nvidia/openshell/gateway \
+--set image.tag=8bfd3e1914a684094f472bce6d341706455288d7 \
+--set server.supervisorImage=ghcr.io/nvidia/openshell/supervisor:8bfd3e1914a684094f472bce6d341706455288d7 \
+--set podSecurityContext.fsGroup=null \
+--set securityContext.runAsUser=null
 ```
 
 ## 6. Create an OpenShift Route
@@ -140,7 +143,7 @@ In your main terminal (with the port-forward running):
 OPENSHELL_GATEWAY_ENDPOINT=http://localhost:8080 openshell sandbox create --from openclaw
 ```
 
-The output will include the sandbox name (e.g., `premium-accentor`). Note it for the next steps.
+The output will include the sandbox name (e.g., `earnest-shrimp`). Note it for the next steps.
 
 Verify the sandbox pod is running:
 
@@ -154,7 +157,7 @@ oc get sandboxes.agents.x-k8s.io -n openshell
 Run the interactive setup wizard inside the sandbox to configure your LLM provider (Anthropic, vLLM, etc.):
 
 ```shell
-oc exec -it premium-accentor -n openshell -- openclaw configure
+oc exec -it earnest-shrimp -n openshell -- openclaw configure
 ```
 
 ## 11. Start the OpenClaw gateway
@@ -162,7 +165,7 @@ oc exec -it premium-accentor -n openshell -- openclaw configure
 Start the OpenClaw gateway process inside the sandbox:
 
 ```shell
-oc exec premium-accentor -n openshell -- openclaw gateway --allow-unconfigured
+oc exec earnest-shrimp -n openshell -- openclaw gateway --allow-unconfigured
 ```
 
 ## 12. Launch the OpenClaw dashboard UI
@@ -170,7 +173,7 @@ oc exec premium-accentor -n openshell -- openclaw gateway --allow-unconfigured
 In a separate terminal, get the tokenized dashboard URL:
 
 ```shell
-oc exec premium-accentor -n openshell -- openclaw dashboard --no-open
+oc exec earnest-shrimp -n openshell -- openclaw dashboard --no-open
 ```
 
 This prints a URL like `http://127.0.0.1:18789/#token=...`. Copy the token portion.
@@ -178,7 +181,7 @@ This prints a URL like `http://127.0.0.1:18789/#token=...`. Copy the token porti
 Start a port-forward to the sandbox's dashboard port:
 
 ```shell
-oc port-forward premium-accentor 18789:18789 -n openshell
+oc port-forward earnest-shrimp 18789:18789 -n openshell
 ```
 
 Open the URL in your browser, replacing the host with `localhost`:
@@ -228,6 +231,9 @@ helm upgrade openshell deploy/helm/openshell -n openshell \
   --set server.disableTls=true \
   --set service.type=ClusterIP \
   --set server.sandboxNamespace=openshell \
+  --set image.repository=ghcr.io/nvidia/openshell/gateway \
+  --set image.tag=<commit-sha-or-tag> \
+  --set server.supervisorImage=ghcr.io/nvidia/openshell/supervisor:<commit-sha-or-tag> \
   --set podSecurityContext.fsGroup=null \
   --set securityContext.runAsUser=null
 ```
