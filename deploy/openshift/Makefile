@@ -4,23 +4,22 @@
 # OpenShell on OpenShift — deployment automation
 #
 # Usage:
-#   make deploy IMAGE_TAG=<sha>       Full deploy (namespace + CRD + SCC + secret + helm + route)
-#   make upgrade IMAGE_TAG=<sha>      Helm upgrade with same overrides
-#   make undeploy                     Full teardown
-#   make status                       Show pods, routes, services
-#   make logs                         Tail gateway logs
-#   make sandbox-create               Create an OpenClaw sandbox
+#   make deploy CHART_VERSION=0.6.0    Full deploy (namespace + CRD + SCC + secret + helm + route)
+#   make upgrade CHART_VERSION=0.7.0   Helm upgrade with same overrides
+#   make undeploy                      Full teardown
+#   make status                        Show pods, routes, services
+#   make logs                          Tail gateway logs
+#   make sandbox-create                Create an OpenClaw sandbox
 #   make openclaw-configure SANDBOX=<name>  Configure OpenClaw LLM provider
 #   make openclaw-start SANDBOX=<name>      Start OpenClaw gateway in sandbox
 #   make openclaw-ui SANDBOX=<name>         Launch OpenClaw dashboard UI
 #   make sandbox-delete SANDBOX=<name>      Delete a sandbox
-#   make images                       Build and push images to registry
+#   make images                        Build and push images to registry
 
 NAMESPACE       ?= openshell
 HELM_RELEASE    ?= openshell
-HELM_CHART      ?= ../helm/openshell
-IMAGE_REPO      ?= ghcr.io/nvidia/openshell
-IMAGE_TAG       ?= latest
+HELM_CHART      ?= oci://ghcr.io/nvidia/openshell/helm-chart
+CHART_VERSION   ?= 0.0.0-dev
 SANDBOX_IMAGE   ?= openclaw
 OPENCLAW_PORT   ?= 18789
 RUST_TARGET     ?= x86_64-unknown-linux-gnu
@@ -28,17 +27,18 @@ DOCKERFILE      ?= deploy/docker/Dockerfile.images
 PROJECT_ROOT    ?= ../..
 SANDBOX_CRD     ?= ../kube/manifests/agent-sandbox.yaml
 
+# Image variables — only used by build/images targets for custom builds
+IMAGE_REPO      ?= ghcr.io/nvidia/openshell
+IMAGE_TAG       ?= latest
 GATEWAY_IMAGE   := $(IMAGE_REPO)/openshell-gateway:$(IMAGE_TAG)
 SUPERVISOR_IMAGE := $(IMAGE_REPO)/openshell-supervisor:$(IMAGE_TAG)
 PREBUILT_DIR    := ../docker/.build/prebuilt-binaries/amd64
 
 HELM_OVERRIDES  := \
+	--set pkiInitJob.enabled=false \
 	--set server.disableTls=true \
 	--set service.type=ClusterIP \
 	--set server.sandboxNamespace=$(NAMESPACE) \
-	--set image.repository=$(IMAGE_REPO)/openshell-gateway \
-	--set image.tag=$(IMAGE_TAG) \
-	--set server.supervisorImage=$(SUPERVISOR_IMAGE) \
 	--set podSecurityContext.fsGroup=null \
 	--set securityContext.runAsUser=null
 
@@ -71,10 +71,10 @@ scc: ## Grant privileged SCC and RBAC fixes for OpenShift
 			-p='[{"op":"add","path":"/rules/-","value":{"apiGroups":["agents.x-k8s.io"],"resources":["sandboxes/finalizers"],"verbs":["update"]}}]'
 
 helm-install:
-	helm install $(HELM_RELEASE) $(HELM_CHART) -n $(NAMESPACE) $(HELM_OVERRIDES)
+	helm install $(HELM_RELEASE) $(HELM_CHART) --version $(CHART_VERSION) -n $(NAMESPACE) $(HELM_OVERRIDES)
 
 upgrade: ## Helm upgrade with OpenShift overrides
-	helm upgrade $(HELM_RELEASE) $(HELM_CHART) -n $(NAMESPACE) $(HELM_OVERRIDES)
+	helm upgrade $(HELM_RELEASE) $(HELM_CHART) --version $(CHART_VERSION) -n $(NAMESPACE) $(HELM_OVERRIDES)
 
 undeploy: ## Full teardown: helm uninstall + route + secret + PVCs
 	-helm uninstall $(HELM_RELEASE) -n $(NAMESPACE)
@@ -148,7 +148,7 @@ openclaw-ui: ## Launch OpenClaw UI (SANDBOX=<name> [OPENCLAW_PORT=18789])
 		oc port-forward $(SANDBOX) $(OPENCLAW_PORT):18789 -n $(NAMESPACE)
 
 # ---------------------------------------------------------------------------
-# Build
+# Build (custom images from source)
 # ---------------------------------------------------------------------------
 
 build: ## Cross-compile gateway + supervisor for linux/amd64

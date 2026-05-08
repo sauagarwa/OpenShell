@@ -4,7 +4,7 @@ Deploy OpenShell and run OpenClaw sandboxes on an OpenShift cluster using the pr
 
 ## Prerequisites
 
-- `oc` CLI authenticated to your OpenShift cluster (with cluster-admin for CRD installation)
+- `oc` CLI authenticated to your OpenShift cluster (with cluster-admin for CRD installation and SCC)
 - `helm` v3+
 - `openshell` CLI installed locally
 
@@ -13,8 +13,8 @@ Deploy OpenShell and run OpenClaw sandboxes on an OpenShift cluster using the pr
 ```shell
 cd deploy/openshift
 
-# Deploy OpenShell (using a specific image tag)
-make deploy IMAGE_TAG=8bfd3e1914a684094f472bce6d341706455288d7
+# Deploy OpenShell (using a specific chart version)
+make deploy CHART_VERSION=0.6.0
 
 # Verify everything is running
 make status
@@ -32,25 +32,34 @@ make openclaw-start SANDBOX=<sandbox-name>
 make openclaw-ui SANDBOX=<sandbox-name>
 ```
 
+## Chart Versions
+
+The Helm chart is published as an OCI artifact at `oci://ghcr.io/nvidia/openshell/helm-chart`.
+
+| Version | Description |
+|---------|-------------|
+| `0.6.0`, `0.7.0`, ... | Tagged releases. Tracks matching gateway and supervisor image versions. **Recommended for production.** |
+| `0.0.0-dev` | Latest `main` branch. Floating tag updated with each push; uses `:dev` image tag. |
+| `0.0.0-dev.<commit-sha>` | Specific `main` commit. Per-commit pinning using full 40-char SHA. |
+
 ## Step-by-Step Deployment
 
 ### 1. Deploy OpenShell
 
-This creates the namespace, installs the Sandbox CRD and controller, creates the SSH handshake secret, installs the Helm chart, and creates an OpenShift Route with edge TLS termination:
+This creates the namespace, installs the Sandbox CRD and controller, grants the privileged SCC, creates the SSH handshake secret, installs the Helm chart from the OCI registry, and creates an OpenShift Route with edge TLS termination:
 
 ```shell
-make deploy IMAGE_TAG=<commit-sha-or-tag>
+make deploy CHART_VERSION=0.6.0
 ```
 
-> **Note:** The `latest` tag in the upstream `ghcr.io/nvidia/openshell` repository may not be up to date. Use a specific commit SHA as the image tag to ensure you get a working build. For example:
+The chart is pulled from `oci://ghcr.io/nvidia/openshell/helm-chart`. OpenShift-specific overrides are applied automatically:
 
-```shell
-make deploy IMAGE_TAG=8bfd3e1914a684094f472bce6d341706455288d7
-```
+- `pkiInitJob.enabled=false` — skips the PKI init job (not needed on OpenShift)
+- `server.disableTls=true` — the OpenShift Route terminates TLS at the edge
+- `podSecurityContext.fsGroup=null` — lets OpenShift assign UIDs from the namespace range
+- `securityContext.runAsUser=null` — same as above
 
 The Sandbox CRD (`sandboxes.agents.x-k8s.io`) is required for sandbox lifecycle management. It is installed automatically if not already present. CRD installation requires cluster-admin privileges.
-
-The gateway runs plaintext HTTP behind the OpenShift Route, which terminates TLS at the edge.
 
 ### 2. Verify the deployment
 
@@ -124,10 +133,10 @@ make openclaw-ui SANDBOX=showy-dinosaur OPENCLAW_PORT=9999
 
 ## Upgrading
 
-After updating images or Helm values:
+After updating to a newer chart version:
 
 ```shell
-make upgrade
+make upgrade CHART_VERSION=0.7.0
 ```
 
 ## Teardown
@@ -156,24 +165,27 @@ All variables can be overridden on the command line:
 |----------|---------|-------------|
 | `NAMESPACE` | `openshell` | OpenShift namespace |
 | `HELM_RELEASE` | `openshell` | Helm release name |
-| `HELM_CHART` | `../helm/openshell` | Path to the Helm chart |
-| `IMAGE_REPO` | `ghcr.io/nvidia/openshell` | Container image repository |
-| `IMAGE_TAG` | `latest` | Image tag (commit SHA or version tag) |
+| `HELM_CHART` | `oci://ghcr.io/nvidia/openshell/helm-chart` | OCI Helm chart reference |
+| `CHART_VERSION` | `0.0.0-dev` | Chart version to install (see Chart Versions above) |
 | `SANDBOX_IMAGE` | `openclaw` | Sandbox image name for `sandbox-create` |
 | `OPENCLAW_PORT` | `18789` | Local port for the OpenClaw dashboard |
+| `IMAGE_REPO` | `ghcr.io/nvidia/openshell` | Container image repository (for custom builds only) |
 | `RUST_TARGET` | `x86_64-unknown-linux-gnu` | Rust cross-compilation target |
 
 Example:
 
 ```shell
-# Deploy with a specific commit SHA
-make deploy IMAGE_TAG=8bfd3e1914a684094f472bce6d341706455288d7
+# Deploy a tagged release
+make deploy CHART_VERSION=0.6.0
 
-# Deploy with a custom image registry
-make deploy IMAGE_REPO=quay.io/myorg IMAGE_TAG=latest
+# Deploy the latest dev chart
+make deploy CHART_VERSION=0.0.0-dev
+
+# Deploy a specific commit
+make deploy CHART_VERSION=0.0.0-dev.8bfd3e1914a684094f472bce6d341706455288d7
 
 # Deploy to a different namespace
-make deploy NAMESPACE=my-ns IMAGE_TAG=8bfd3e1914a684094f472bce6d341706455288d7
+make deploy NAMESPACE=my-ns CHART_VERSION=0.6.0
 ```
 
 ## Make Targets
@@ -182,7 +194,7 @@ Run `make help` to see all available targets:
 
 | Target | Description |
 |--------|-------------|
-| `deploy` | Full deploy: namespace + CRD + secret + helm install + route |
+| `deploy` | Full deploy: namespace + CRD + SCC + secret + helm install + route |
 | `sandbox-crd` | Install the Sandbox CRD and controller |
 | `upgrade` | Helm upgrade with OpenShift overrides |
 | `undeploy` | Full teardown: helm uninstall + route + secret + PVCs |

@@ -11,7 +11,7 @@ This guide walks through deploying OpenShell on OpenShift and running an OpenCla
 ## 1. Create the namespace
 
 ```shell
-oc new-project openshell
+oc create ns openshell
 ```
 
 ## 2. Install the Sandbox CRD
@@ -72,12 +72,11 @@ oc create secret generic openshell-ssh-handshake \
 
 ## 5. Deploy the OpenShell gateway with Helm
 
-Install the Helm chart with OpenShift-specific overrides. TLS is disabled because the OpenShift Route terminates TLS at the edge. The hardcoded `fsGroup` and `runAsUser` are removed so OpenShift can assign UIDs from the namespace's allowed range.
-
-> **Note:** The `latest` tag in the upstream `ghcr.io/nvidia/openshell` repository may not be up to date. Use a specific commit SHA as the image tag to ensure you get a working build.
+Install the Helm chart from the OCI registry with OpenShift-specific overrides. TLS is disabled because the OpenShift Route terminates TLS at the edge. The PKI init job is disabled. The hardcoded `fsGroup` and `runAsUser` are removed so OpenShift can assign UIDs from the namespace's allowed range.
 
 ```shell
-helm install openshell deploy/helm/openshell -n openshell \
+helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <version> -n openshell \
+  --set pkiInitJob.enabled=false \
   --set server.disableTls=true \
   --set service.type=ClusterIP \
   --set server.sandboxNamespace=openshell \
@@ -85,19 +84,36 @@ helm install openshell deploy/helm/openshell -n openshell \
   --set securityContext.runAsUser=null
 ```
 
-If you are using dev images, add the image overrides with the desired tag:
-8bfd3e1914a684094f472bce6d341706455288d7 is the current dev image hash
+### Chart versions
+
+| Version | Description |
+|---------|-------------|
+| `0.6.0`, `0.7.0`, ... | Tagged releases. **Recommended for production.** |
+| `0.0.0-dev` | Latest `main` branch (floating tag). |
+| `0.0.0-dev.<commit-sha>` | Specific `main` commit (per-commit pinning). |
+
+Example with a tagged release:
 
 ```shell
-helm install openshell deploy/helm/openshell -n openshell \
---set server.disableTls=true \
---set service.type=ClusterIP \
---set server.sandboxNamespace=openshell \
---set image.repository=ghcr.io/nvidia/openshell/gateway \
---set image.tag=8bfd3e1914a684094f472bce6d341706455288d7 \
---set server.supervisorImage=ghcr.io/nvidia/openshell/supervisor:8bfd3e1914a684094f472bce6d341706455288d7 \
---set podSecurityContext.fsGroup=null \
---set securityContext.runAsUser=null
+helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version 0.6.0 -n openshell \
+  --set pkiInitJob.enabled=false \
+  --set server.disableTls=true \
+  --set service.type=ClusterIP \
+  --set server.sandboxNamespace=openshell \
+  --set podSecurityContext.fsGroup=null \
+  --set securityContext.runAsUser=null
+```
+
+Example with the latest dev chart:
+
+```shell
+helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version 0.0.0-dev -n openshell \
+  --set pkiInitJob.enabled=false \
+  --set server.disableTls=true \
+  --set service.type=ClusterIP \
+  --set server.sandboxNamespace=openshell \
+  --set podSecurityContext.fsGroup=null \
+  --set securityContext.runAsUser=null
 ```
 
 ## 6. Create an OpenShift Route
@@ -227,13 +243,11 @@ oc exec <sandbox-name> -n openshell -- openclaw logs --follow
 ## Upgrading
 
 ```shell
-helm upgrade openshell deploy/helm/openshell -n openshell \
+helm upgrade openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <version> -n openshell \
+  --set pkiInitJob.enabled=false \
   --set server.disableTls=true \
   --set service.type=ClusterIP \
   --set server.sandboxNamespace=openshell \
-  --set image.repository=ghcr.io/nvidia/openshell/gateway \
-  --set image.tag=<commit-sha-or-tag> \
-  --set server.supervisorImage=ghcr.io/nvidia/openshell/supervisor:<commit-sha-or-tag> \
   --set podSecurityContext.fsGroup=null \
   --set securityContext.runAsUser=null
 ```
