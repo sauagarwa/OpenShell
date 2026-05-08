@@ -22,10 +22,10 @@ Check if the Sandbox CRD is already installed:
 oc get crd sandboxes.agents.x-k8s.io
 ```
 
-If not found, install it:
+If not found, install the Kubernetes Agent Sandbox CRDs and controller:
 
 ```shell
-oc apply -f deploy/kube/manifests/agent-sandbox.yaml
+oc apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.4.3/manifest.yaml
 ```
 
 Verify the CRD and controller are running:
@@ -37,86 +37,27 @@ oc get pods -n agent-sandbox-system
 
 You should see `agent-sandbox-controller-0` in `Running` state.
 
-## 3. Fix OpenShift Security Context Constraints (SCC)
+## 3. Grant privileged SCC
 
-OpenShift's default `restricted-v2` SCC blocks sandbox pods that require elevated privileges (`runAsUser: 0`, `NET_ADMIN`, `SYS_ADMIN`, etc.). Grant the `privileged` SCC to the required service accounts:
+Sandboxes use the default service account and need elevated privileges. Grant the `privileged` SCC:
 
 ```shell
-# Allow the sandbox controller to create privileged pods
-oc adm policy add-scc-to-user privileged -z agent-sandbox-controller -n agent-sandbox-system
-
-# Allow sandbox pods in the openshell namespace to run privileged
 oc adm policy add-scc-to-user privileged -z default -n openshell
 ```
 
-The sandbox controller also needs RBAC permission to set finalizers on Sandbox resources (required for `blockOwnerDeletion` on child PVCs, Pods, and Services). Check if it already has the permission:
+## 4. Deploy the OpenShell gateway with Helm
 
-```shell
-oc get clusterrole agent-sandbox-controller -o json | grep 'sandboxes/finalizers'
-```
-
-If there is no output, patch the ClusterRole:
-
-```shell
-oc patch clusterrole agent-sandbox-controller --type=json \
-  -p='[{"op":"add","path":"/rules/-","value":{"apiGroups":["agents.x-k8s.io"],"resources":["sandboxes/finalizers"],"verbs":["update"]}}]'
-```
-
-## 4. Create the SSH handshake secret
-
-```shell
-oc create secret generic openshell-ssh-handshake \
-  --from-literal=secret=$(openssl rand -hex 32) \
-  -n openshell
-```
-
-## 5. Deploy the OpenShell gateway with Helm
-
-Install the Helm chart from the OCI registry with OpenShift-specific overrides. TLS is disabled because the OpenShift Route terminates TLS at the edge. The PKI init job is disabled. The hardcoded `fsGroup` and `runAsUser` are removed so OpenShift can assign UIDs from the namespace's allowed range.
-
-```shell
-helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <version> -n openshell \
-  --set pkiInitJob.enabled=false \
-  --set server.disableTls=true \
-  --set service.type=ClusterIP \
-  --set server.sandboxNamespace=openshell \
-  --set podSecurityContext.fsGroup=null \
-  --set securityContext.runAsUser=null
-```
-
-### Chart versions
-
-| Version | Description |
-|---------|-------------|
-| `0.6.0`, `0.7.0`, ... | Tagged releases. **Recommended for production.** |
-| `0.0.0-dev` | Latest `main` branch (floating tag). |
-| `0.0.0-dev.<commit-sha>` | Specific `main` commit (per-commit pinning). |
-
-Example with a tagged release:
-
-```shell
-helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version 0.6.0 -n openshell \
-  --set pkiInitJob.enabled=false \
-  --set server.disableTls=true \
-  --set service.type=ClusterIP \
-  --set server.sandboxNamespace=openshell \
-  --set podSecurityContext.fsGroup=null \
-  --set securityContext.runAsUser=null
-```
-
-Example with the latest dev chart:
+Install the Helm chart with OpenShift-specific overrides. PKI bootstrap is disabled because OpenShift Route terminates TLS at the edge. The hardcoded `fsGroup` and `runAsUser` are removed so OpenShift can assign UIDs from the namespace's allowed range.
 
 ```shell
 helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version 0.0.0-dev -n openshell \
   --set pkiInitJob.enabled=false \
   --set server.disableTls=true \
-  --set service.type=ClusterIP \
-  --set server.sandboxNamespace=openshell \
   --set podSecurityContext.fsGroup=null \
   --set securityContext.runAsUser=null
 ```
 
-## 6. Create an OpenShift Route
+## 5. Create an OpenShift Route
 
 Create an edge-terminated Route so the gateway is accessible over HTTPS:
 
@@ -127,7 +68,7 @@ oc create route edge openshell-gateway \
   -n openshell
 ```
 
-## 7. Verify the deployment
+## 6. Verify the deployment
 
 ```shell
 oc get pods -n openshell
@@ -141,7 +82,7 @@ The gateway pod (`openshell-0`) should be `Running` and `Ready`. Check the logs 
 oc logs openshell-0 -n openshell
 ```
 
-## 8. Port-forward the gateway
+## 7. Port-forward the gateway
 
 In a separate terminal, start a port-forward so the local `openshell` CLI can reach the gateway:
 
@@ -151,7 +92,7 @@ oc port-forward svc/openshell 8080:8080 -n openshell
 
 Keep this terminal running for the following steps.
 
-## 9. Create an OpenClaw sandbox
+## 8. Create an OpenClaw sandbox
 
 In your main terminal (with the port-forward running):
 
@@ -168,7 +109,7 @@ oc get pods -n openshell
 oc get sandboxes.agents.x-k8s.io -n openshell
 ```
 
-## 10. Configure OpenClaw
+## 9. Configure OpenClaw
 
 Run the interactive setup wizard inside the sandbox to configure your LLM provider (Anthropic, vLLM, etc.):
 
@@ -176,7 +117,7 @@ Run the interactive setup wizard inside the sandbox to configure your LLM provid
 oc exec -it earnest-shrimp -n openshell -- openclaw configure
 ```
 
-## 11. Start the OpenClaw gateway
+## 10. Start the OpenClaw gateway
 
 Start the OpenClaw gateway process inside the sandbox:
 
@@ -184,7 +125,7 @@ Start the OpenClaw gateway process inside the sandbox:
 oc exec earnest-shrimp -n openshell -- openclaw gateway --allow-unconfigured
 ```
 
-## 12. Launch the OpenClaw dashboard UI
+## 11. Launch the OpenClaw dashboard UI
 
 In a separate terminal, get the tokenized dashboard URL:
 
@@ -243,11 +184,9 @@ oc exec <sandbox-name> -n openshell -- openclaw logs --follow
 ## Upgrading
 
 ```shell
-helm upgrade openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <version> -n openshell \
+helm upgrade openshell oci://ghcr.io/nvidia/openshell/helm-chart --version 0.0.0-dev -n openshell \
   --set pkiInitJob.enabled=false \
   --set server.disableTls=true \
-  --set service.type=ClusterIP \
-  --set server.sandboxNamespace=openshell \
   --set podSecurityContext.fsGroup=null \
   --set securityContext.runAsUser=null
 ```
@@ -257,6 +196,5 @@ helm upgrade openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <vers
 ```shell
 helm uninstall openshell -n openshell
 oc delete route openshell-gateway -n openshell
-oc delete secret openshell-ssh-handshake -n openshell
 oc delete pvc -l app.kubernetes.io/instance=openshell -n openshell
 ```

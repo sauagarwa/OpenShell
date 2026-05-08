@@ -13,8 +13,8 @@ Deploy OpenShell and run OpenClaw sandboxes on an OpenShift cluster using the pr
 ```shell
 cd deploy/openshift
 
-# Deploy OpenShell (using a specific chart version)
-make deploy CHART_VERSION=0.6.0
+# Deploy OpenShell (using the dev version)
+make deploy
 
 # Verify everything is running
 make status
@@ -46,18 +46,17 @@ The Helm chart is published as an OCI artifact at `oci://ghcr.io/nvidia/openshel
 
 ### 1. Deploy OpenShell
 
-This creates the namespace, installs the Sandbox CRD and controller, grants the privileged SCC, creates the SSH handshake secret, installs the Helm chart from the OCI registry, and creates an OpenShift Route with edge TLS termination:
+This creates the namespace, installs the Sandbox CRD and controller, grants the privileged SCC, installs the Helm chart, and creates an OpenShift Route with edge TLS termination:
 
 ```shell
-make deploy CHART_VERSION=0.6.0
+make deploy
 ```
 
-The chart is pulled from `oci://ghcr.io/nvidia/openshell/helm-chart`. OpenShift-specific overrides are applied automatically:
+To pin a specific chart version (e.g., a per-commit pin):
 
-- `pkiInitJob.enabled=false` — skips the PKI init job (not needed on OpenShift)
-- `server.disableTls=true` — the OpenShift Route terminates TLS at the edge
-- `podSecurityContext.fsGroup=null` — lets OpenShift assign UIDs from the namespace range
-- `securityContext.runAsUser=null` — same as above
+```shell
+make deploy HELM_VERSION=0.0.0-dev.<commit-sha>
+```
 
 The Sandbox CRD (`sandboxes.agents.x-k8s.io`) is required for sandbox lifecycle management. It is installed automatically if not already present. CRD installation requires cluster-admin privileges.
 
@@ -136,26 +135,16 @@ make openclaw-ui SANDBOX=showy-dinosaur OPENCLAW_PORT=9999
 After updating to a newer chart version:
 
 ```shell
-make upgrade CHART_VERSION=0.7.0
+make upgrade HELM_VERSION=0.7.0
 ```
 
 ## Teardown
 
-Remove everything (Helm release, route, secret, PVCs):
+Remove everything (Helm release, route, PVCs):
 
 ```shell
 make undeploy
 ```
-
-## Building Custom Images
-
-Cross-compile the gateway and supervisor binaries from source and push container images to a registry:
-
-```shell
-make images
-```
-
-This uses `cargo-zigbuild` for cross-compilation to `linux/amd64` and pushes to the configured image repository.
 
 ## Configuration
 
@@ -166,26 +155,21 @@ All variables can be overridden on the command line:
 | `NAMESPACE` | `openshell` | OpenShift namespace |
 | `HELM_RELEASE` | `openshell` | Helm release name |
 | `HELM_CHART` | `oci://ghcr.io/nvidia/openshell/helm-chart` | OCI Helm chart reference |
-| `CHART_VERSION` | `0.0.0-dev` | Chart version to install (see Chart Versions above) |
+| `HELM_VERSION` | `0.0.0-dev` | Helm chart version |
 | `SANDBOX_IMAGE` | `openclaw` | Sandbox image name for `sandbox-create` |
 | `OPENCLAW_PORT` | `18789` | Local port for the OpenClaw dashboard |
-| `IMAGE_REPO` | `ghcr.io/nvidia/openshell` | Container image repository (for custom builds only) |
-| `RUST_TARGET` | `x86_64-unknown-linux-gnu` | Rust cross-compilation target |
 
 Example:
 
 ```shell
+# Deploy with a specific commit pin
+make deploy HELM_VERSION=0.0.0-dev.<commit-sha>
+
 # Deploy a tagged release
-make deploy CHART_VERSION=0.6.0
-
-# Deploy the latest dev chart
-make deploy CHART_VERSION=0.0.0-dev
-
-# Deploy a specific commit
-make deploy CHART_VERSION=0.0.0-dev.8bfd3e1914a684094f472bce6d341706455288d7
+make deploy HELM_VERSION=0.6.0
 
 # Deploy to a different namespace
-make deploy NAMESPACE=my-ns CHART_VERSION=0.6.0
+make deploy NAMESPACE=my-ns
 ```
 
 ## Make Targets
@@ -194,11 +178,10 @@ Run `make help` to see all available targets:
 
 | Target | Description |
 |--------|-------------|
-| `deploy` | Full deploy: namespace + CRD + SCC + secret + helm install + route |
+| `deploy` | Full deploy: namespace + CRD + SCC + helm install + route |
 | `sandbox-crd` | Install the Sandbox CRD and controller |
 | `upgrade` | Helm upgrade with OpenShift overrides |
-| `undeploy` | Full teardown: helm uninstall + route + secret + PVCs |
-| `secret` | Create SSH handshake secret |
+| `undeploy` | Full teardown: helm uninstall + route + PVCs |
 | `route` | Create OpenShift edge-terminated Route |
 | `status` | Show pods, routes, services, sandboxes |
 | `logs` | Tail gateway logs |
@@ -207,6 +190,4 @@ Run `make help` to see all available targets:
 | `sandbox-list` | List sandboxes |
 | `openclaw-start` | Start OpenClaw gateway in a sandbox |
 | `openclaw-ui` | Launch OpenClaw dashboard UI |
-| `build` | Cross-compile binaries for linux/amd64 |
-| `images` | Build and push gateway + supervisor images |
 | `clean` | Delete PVCs and stale resources |

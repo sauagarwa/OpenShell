@@ -4,46 +4,33 @@
 # OpenShell on OpenShift — deployment automation
 #
 # Usage:
-#   make deploy CHART_VERSION=0.6.0    Full deploy (namespace + CRD + SCC + secret + helm + route)
-#   make upgrade CHART_VERSION=0.7.0   Helm upgrade with same overrides
-#   make undeploy                      Full teardown
-#   make status                        Show pods, routes, services
-#   make logs                          Tail gateway logs
-#   make sandbox-create                Create an OpenClaw sandbox
+#   make deploy                       Full deploy (namespace + CRD + SCC + helm + route)
+#   make upgrade                      Helm upgrade with same overrides
+#   make undeploy                     Full teardown
+#   make status                       Show pods, routes, services
+#   make logs                         Tail gateway logs
+#   make sandbox-create               Create an OpenClaw sandbox
 #   make openclaw-configure SANDBOX=<name>  Configure OpenClaw LLM provider
 #   make openclaw-start SANDBOX=<name>      Start OpenClaw gateway in sandbox
 #   make openclaw-ui SANDBOX=<name>         Launch OpenClaw dashboard UI
 #   make sandbox-delete SANDBOX=<name>      Delete a sandbox
-#   make images                        Build and push images to registry
 
 NAMESPACE       ?= openshell
 HELM_RELEASE    ?= openshell
 HELM_CHART      ?= oci://ghcr.io/nvidia/openshell/helm-chart
-CHART_VERSION   ?= 0.0.0-dev
+HELM_VERSION    ?= 0.0.0-dev
 SANDBOX_IMAGE   ?= openclaw
 OPENCLAW_PORT   ?= 18789
-RUST_TARGET     ?= x86_64-unknown-linux-gnu
-DOCKERFILE      ?= deploy/docker/Dockerfile.images
-PROJECT_ROOT    ?= ../..
-SANDBOX_CRD     ?= ../kube/manifests/agent-sandbox.yaml
-
-# Image variables — only used by build/images targets for custom builds
-IMAGE_REPO      ?= ghcr.io/nvidia/openshell
-IMAGE_TAG       ?= latest
-GATEWAY_IMAGE   := $(IMAGE_REPO)/openshell-gateway:$(IMAGE_TAG)
-SUPERVISOR_IMAGE := $(IMAGE_REPO)/openshell-supervisor:$(IMAGE_TAG)
-PREBUILT_DIR    := ../docker/.build/prebuilt-binaries/amd64
+SANDBOX_CRD     ?= https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.4.3/manifest.yaml
 
 HELM_OVERRIDES  := \
 	--set pkiInitJob.enabled=false \
 	--set server.disableTls=true \
-	--set service.type=ClusterIP \
-	--set server.sandboxNamespace=$(NAMESPACE) \
 	--set podSecurityContext.fsGroup=null \
 	--set securityContext.runAsUser=null
 
-.PHONY: deploy upgrade undeploy namespace sandbox-crd scc secret route status logs port-forward \
-        sandbox-create sandbox-list sandbox-delete openclaw-configure openclaw-start openclaw-ui build images clean help
+.PHONY: deploy upgrade undeploy namespace sandbox-crd scc route status logs port-forward \
+        sandbox-create sandbox-list sandbox-delete openclaw-configure openclaw-start openclaw-ui clean help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -53,41 +40,29 @@ help: ## Show this help
 # Deployment
 # ---------------------------------------------------------------------------
 
-deploy: namespace sandbox-crd scc secret helm-install route ## Full deploy: namespace + CRD + SCC + secret + helm + route
+deploy: namespace sandbox-crd scc helm-install route ## Full deploy: namespace + CRD + SCC + helm + route
 	@echo "Deploy complete. Run 'make status' to verify."
 
 namespace:
-	@oc get namespace $(NAMESPACE) >/dev/null 2>&1 || oc new-project $(NAMESPACE)
+	@oc get namespace $(NAMESPACE) >/dev/null 2>&1 || oc create ns $(NAMESPACE)
 
 sandbox-crd: ## Install the Sandbox CRD and controller
 	@oc get crd sandboxes.agents.x-k8s.io >/dev/null 2>&1 || oc apply -f $(SANDBOX_CRD)
 
-scc: ## Grant privileged SCC and RBAC fixes for OpenShift
-	oc adm policy add-scc-to-user privileged -z agent-sandbox-controller -n agent-sandbox-system
+scc: ## Grant privileged SCC for sandbox pods
 	oc adm policy add-scc-to-user privileged -z default -n $(NAMESPACE)
-	@oc get clusterrole agent-sandbox-controller -o json | \
-		grep -q 'sandboxes/finalizers' || \
-		oc patch clusterrole agent-sandbox-controller --type=json \
-			-p='[{"op":"add","path":"/rules/-","value":{"apiGroups":["agents.x-k8s.io"],"resources":["sandboxes/finalizers"],"verbs":["update"]}}]'
 
 helm-install:
-	helm install $(HELM_RELEASE) $(HELM_CHART) --version $(CHART_VERSION) -n $(NAMESPACE) $(HELM_OVERRIDES)
+	helm install $(HELM_RELEASE) $(HELM_CHART) --version $(HELM_VERSION) -n $(NAMESPACE) $(HELM_OVERRIDES)
 
 upgrade: ## Helm upgrade with OpenShift overrides
-	helm upgrade $(HELM_RELEASE) $(HELM_CHART) --version $(CHART_VERSION) -n $(NAMESPACE) $(HELM_OVERRIDES)
+	helm upgrade $(HELM_RELEASE) $(HELM_CHART) --version $(HELM_VERSION) -n $(NAMESPACE) $(HELM_OVERRIDES)
 
-undeploy: ## Full teardown: helm uninstall + route + secret + PVCs
+undeploy: ## Full teardown: helm uninstall + route + PVCs
 	-helm uninstall $(HELM_RELEASE) -n $(NAMESPACE)
 	-oc delete route openshell-gateway -n $(NAMESPACE)
-	-oc delete secret openshell-ssh-handshake -n $(NAMESPACE)
 	-oc delete pvc -l app.kubernetes.io/instance=$(HELM_RELEASE) -n $(NAMESPACE)
 	@echo "Teardown complete."
-
-secret: ## Create SSH handshake secret
-	@oc get secret openshell-ssh-handshake -n $(NAMESPACE) >/dev/null 2>&1 || \
-		oc create secret generic openshell-ssh-handshake \
-			--from-literal=secret=$$(openssl rand -hex 32) \
-			-n $(NAMESPACE)
 
 route: ## Create OpenShift edge-terminated Route
 	@oc get route openshell-gateway -n $(NAMESPACE) >/dev/null 2>&1 || \
@@ -146,25 +121,6 @@ openclaw-ui: ## Launch OpenClaw UI (SANDBOX=<name> [OPENCLAW_PORT=18789])
 		echo "\nOpen in your browser:\n  $$LOCAL_URL\n"; \
 		echo "Starting port-forward on localhost:$(OPENCLAW_PORT)..."; \
 		oc port-forward $(SANDBOX) $(OPENCLAW_PORT):18789 -n $(NAMESPACE)
-
-# ---------------------------------------------------------------------------
-# Build (custom images from source)
-# ---------------------------------------------------------------------------
-
-build: ## Cross-compile gateway + supervisor for linux/amd64
-	cd $(PROJECT_ROOT) && cargo zigbuild --release --target $(RUST_TARGET) \
-		-p openshell-server -p openshell-sandbox
-	@mkdir -p $(PREBUILT_DIR)
-	cp $(PROJECT_ROOT)/target/$(RUST_TARGET)/release/openshell-gateway $(PREBUILT_DIR)/
-	cp $(PROJECT_ROOT)/target/$(RUST_TARGET)/release/openshell-sandbox $(PREBUILT_DIR)/
-	@echo "Binaries staged at $(PREBUILT_DIR)/"
-
-images: build ## Build and push gateway + supervisor images
-	cd $(PROJECT_ROOT) && docker buildx build --platform linux/amd64 \
-		--target gateway -t $(GATEWAY_IMAGE) --push -f $(DOCKERFILE) .
-	cd $(PROJECT_ROOT) && docker buildx build --platform linux/amd64 \
-		--target supervisor -t $(SUPERVISOR_IMAGE) --push -f $(DOCKERFILE) .
-	@echo "Pushed $(GATEWAY_IMAGE) and $(SUPERVISOR_IMAGE)"
 
 # ---------------------------------------------------------------------------
 # Cleanup
