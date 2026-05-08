@@ -25,6 +25,9 @@ make port-forward
 # Create an OpenClaw sandbox
 make sandbox-create
 
+# Configure the OpenClaw inside the sandbox
+make openclaw-configure SANDBOX=<sandbox-name>
+
 # Start the OpenClaw gateway inside the sandbox
 make openclaw-start SANDBOX=<sandbox-name>
 
