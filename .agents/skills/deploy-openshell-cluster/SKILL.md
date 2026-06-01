@@ -54,12 +54,33 @@ If the check fails, stop and ask the user to log in before continuing.
 Namespace selection rules:
 
 1. If user explicitly provides a namespace, use it.
-2. If user does not provide a namespace, default to `openshell`.
-3. If `openshell` already has a running gateway and user did not explicitly ask for upgrade, ask:
-   - upgrade existing deployment in `openshell`, or
-   - deploy fresh into a new namespace.
+2. If user does not provide a namespace, discover existing OpenShell deployments and prompt for selection.
 
-Detect existing gateway in `openshell`:
+### Discover existing deployments
+
+Scan for Helm releases named `openshell` across all accessible namespaces:
+
+```bash
+helm list --all-namespaces --filter '^openshell$' -o json 2>/dev/null
+```
+
+### Prompt for namespace selection
+
+When the user did not explicitly provide a namespace, present the available options using `AskUserQuestion`:
+
+- If existing deployments were found, list each namespace as an option labeled with its current status (e.g. `openshell (deployed, chart 0.0.0-dev)`).
+- Always include an option to deploy into a new namespace.
+- Always include `openshell` as the default/recommended option if it does not already have a deployment.
+
+Based on the user's selection:
+
+- **Existing namespace** — treat as an upgrade. Set `EXISTING=true`.
+- **New namespace** — ask the user to provide the namespace name if they selected the "new namespace" option. Set `EXISTING=false`.
+- **Default `openshell` (no existing deployment)** — proceed with `NAMESPACE=openshell`, `EXISTING=false`.
+
+### Detect existing release in selected namespace
+
+After namespace is resolved:
 
 ```bash
 EXISTING=false
@@ -69,8 +90,6 @@ elif kubectl get statefulset "${RELEASE_NAME}" -n "${NAMESPACE}" >/dev/null 2>&1
   EXISTING=true
 fi
 ```
-
-When `EXISTING=true` and namespace was not explicitly specified, stop and ask the user for a choice before proceeding.
 
 ### Clean install: remove stale PVCs (explicit opt-in)
 
